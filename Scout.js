@@ -2,6 +2,7 @@
 
 var React = require('react-native');
 var _ = require('lodash');
+var moment = require('moment');
 
 var {
 	AppRegistry,
@@ -13,8 +14,8 @@ var {
 
 var UMICORNS = [
 	{
-		longitude: -122.406417,
-		latitude: 37.785834,
+		longitude: -97.72966571919972,
+		latitude: 30.26964765339016,
 	},
 ];
 
@@ -28,6 +29,7 @@ class Scout extends React.Component {
 			error: null,
 			watchID: null,
 			umicorns: [],
+			end: null,
 		};
 	}
 
@@ -49,12 +51,14 @@ class Scout extends React.Component {
 	}
 
 	_renderGeo() {
-		var long = this.state.position.coords.longitude * Math.PI / 180;
-		var lat = this.state.position.coords.latitude * Math.PI / 180;
+		var now = moment();
+		var end = this.state.end;
+		var timer = end.diff(now, 'minutes');
 		return (
 			<View>
-				<Text style={styles.info}>{long}</Text>
-				<Text style={styles.info}>{lat}</Text>
+				<Text style={styles.info}>{timer}</Text>
+				<Text style={styles.info}>{this.state.position.coords.longitude}</Text>
+				<Text style={styles.info}>{this.state.position.coords.latitude}</Text>
 				<Text style={styles.info}>{JSON.stringify(this.state.umicorns)}</Text>
 			</View>
 		);
@@ -93,6 +97,7 @@ class Scout extends React.Component {
 			);
 			this.setState({
 				watchID: watchID,
+				end: moment(moment()).add(1, 'hours'), // Add Hour
 				scouting: true
 			});
 		} else {
@@ -100,6 +105,7 @@ class Scout extends React.Component {
 			this.setState({
 				position: null,
 				error: null,
+				end: null,
 				scouting: false
 			});
 		}

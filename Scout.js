@@ -3,6 +3,7 @@
 var React = require('react-native');
 var _ = require('lodash');
 var moment = require('moment');
+var request = require('superagent');
 
 var {
 	AppRegistry,
@@ -21,6 +22,8 @@ var UMICORNS = [
 	},
 ];
 
+var API = 'https://umicorn-api.herokuapp.com/api/v1';
+
 class Scout extends React.Component {
 
 	constructor(props) {
@@ -34,6 +37,7 @@ class Scout extends React.Component {
 			umicorns: [],
 			end: null,
 			timer: null,
+			scout: null,
 		};
 	}
 
@@ -58,8 +62,7 @@ class Scout extends React.Component {
 		return (
 			<View>
 				<Text style={styles.info}>{this.state.timer}</Text>
-				<Text style={styles.info}>{this.state.position.coords.longitude}</Text>
-				<Text style={styles.info}>{this.state.position.coords.latitude}</Text>
+				<Text style={styles.tinyInfo}>{this.state.scout}</Text>
 				<Text style={styles.info}>{this.state.umicorns.length}</Text>
 				<Text style={styles.tinyInfo}>{JSON.stringify(this.state.umicorns)}</Text>
 			</View>
@@ -67,32 +70,11 @@ class Scout extends React.Component {
 	}
 
 	_onPressButton() {
-		var distance = this._distance;
 		var timer = this._timer.bind(this);
 		if (!this.state.scouting) {
 			var timerID = setInterval(timer, 60000); // Every Minute
 			var watchID = navigator.geolocation.watchPosition(
-				(position) => {
-					var umicorns = _.clone(this.state.umicorns);
-					_.forEach(UMICORNS, function(umicorn) {
-						var d = distance(
-							position.coords.longitude,
-							position.coords.latitude,
-							umicorn.longitude,
-							umicorn.latitude
-						);
-						if (d <= 100 && _.indexOf(_.pluck(umicorns, 'id'), umicorn.id) === -1) {
-							umicorn.when = moment();
-							umicorn.distance = d;
-							umicorns.push(umicorn);
-							VibrationIOS.vibrate();
-						}
-					});
-					this.setState({
-						position: position,
-						umicorns: umicorns
-					});
-				},
+				(position) => {this._watcher(position)},
 				(error) => {
 					this.setState({
 						error
@@ -125,6 +107,49 @@ class Scout extends React.Component {
 		}
 	}
 
+	_timer() {
+		var timer = this.state.end.diff(moment(), 'minutes');
+		if (timer <= 0) {
+			this.setState({
+				scouting: false
+			});
+			VibrationIOS.vibrate();
+		} else {
+			this.setState({
+				timer: timer
+			});
+		}
+	}
+
+	_watcher(position) {
+		var umicorns = _.clone(this.state.umicorns);
+
+		this._createScout({
+			latitude: position.coords.latitude,
+			longitude: position.coords.longitude
+		});
+
+		_.forEach(UMICORNS, (umicorn) => {
+			var d = this._distance(
+				position.coords.longitude,
+				position.coords.latitude,
+				umicorn.longitude,
+				umicorn.latitude
+			);
+			if (d <= 100 && _.indexOf(_.pluck(umicorns, 'id'), umicorn.id) === -1) {
+				umicorn.when = moment();
+				umicorn.distance = d;
+				umicorns.push(umicorn);
+				VibrationIOS.vibrate();
+			}
+		});
+
+		this.setState({
+			position: position,
+			umicorns: umicorns
+		});
+	}
+
 	_distance(lon1, lat1, lon2, lat2) {
 		var R = 6371000; // metres
 		var φ1 = lat1 * Math.PI / 180;
@@ -143,18 +168,22 @@ class Scout extends React.Component {
 		return d;
 	}
 
-	_timer() {
-		var timer = this.state.end.diff(moment(), 'minutes');
-		if (timer <= 0) {
-			this.setState({
-				scouting: false
+	_createScout(position) {
+		request
+			.post(API + '/scouts')
+			.send(position)
+			.set('Accept', 'application/json')
+			.end((err, res) => {
+				if (res.ok) {
+					this.setState({
+						scout: res.text
+					});
+				} else {
+					this.setState({
+						scouting: false
+					});
+				}
 			});
-			VibrationIOS.vibrate();
-		} else {
-			this.setState({
-				timer: timer
-			});
-		}
 	}
 }
 

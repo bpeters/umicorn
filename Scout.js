@@ -14,14 +14,6 @@ var {
 	View,
 } = React;
 
-var UMICORNS = [
-	{
-		id: 1,
-		longitude: -97.72966571919972,
-		latitude: 30.26964765339016,
-	},
-];
-
 var API = 'https://umicorn-api.herokuapp.com/api/v1';
 
 class Scout extends React.Component {
@@ -30,14 +22,14 @@ class Scout extends React.Component {
 		super(props);
 		this.state = {
 			scouting: false,
-			position: null,
+			location: null,
 			error: null,
 			watchID: null,
 			timerID: null,
-			umicorns: [],
 			end: null,
 			timer: null,
-			scout: null,
+			scoutID: null,
+			scouts: [],
 		};
 	}
 
@@ -62,9 +54,9 @@ class Scout extends React.Component {
 		return (
 			<View>
 				<Text style={styles.info}>{this.state.timer}</Text>
-				<Text style={styles.tinyInfo}>{this.state.scout}</Text>
-				<Text style={styles.info}>{this.state.umicorns.length}</Text>
-				<Text style={styles.tinyInfo}>{JSON.stringify(this.state.umicorns)}</Text>
+				<Text style={styles.tinyInfo}>{this.state.scoutID}</Text>
+				<Text style={styles.info}>{this.state.scouts.length}</Text>
+				<Text style={styles.tinyInfo}>{JSON.stringify(this.state.scouts)}</Text>
 			</View>
 		);
 	}
@@ -94,27 +86,18 @@ class Scout extends React.Component {
 				scouting: true
 			});
 		} else {
-			navigator.geolocation.clearWatch(this.state.watchID);
-			clearInterval(this.state.timerID);
-			this.setState({
-				position: null,
-				error: null,
-				end: null,
-				timer: null,
-				umicorns: [],
-				scouting: false
-			});
+
+			this._stopScout();
+
 		}
 	}
 
 	_timer() {
 		var timer = this.state.end.diff(moment(), 'minutes');
 		if (timer <= 0) {
-			this.setState({
-				scouting: false
-			});
-			VibrationIOS.vibrate();
+			this._stopScout();
 		} else {
+			this._getScouts(this.state.location);
 			this.setState({
 				timer: timer
 			});
@@ -122,56 +105,46 @@ class Scout extends React.Component {
 	}
 
 	_watcher(position) {
-		var umicorns = _.clone(this.state.umicorns);
 
-		this._createScout({
+		var location = {
 			latitude: position.coords.latitude,
 			longitude: position.coords.longitude
-		});
+		};
 
-		_.forEach(UMICORNS, (umicorn) => {
-			var d = this._distance(
-				position.coords.longitude,
-				position.coords.latitude,
-				umicorn.longitude,
-				umicorn.latitude
-			);
-			if (d <= 100 && _.indexOf(_.pluck(umicorns, 'id'), umicorn.id) === -1) {
-				umicorn.when = moment();
-				umicorn.distance = d;
-				umicorns.push(umicorn);
-				VibrationIOS.vibrate();
-			}
-		});
+		if (!this.state.scoutID) {
+			this._createScout(location);
+		} else {
+			this._updateScout(location);
+		}
+		this._getScouts(location);
 
 		this.setState({
-			position: position,
-			umicorns: umicorns
+			location: location
 		});
 	}
 
-	_distance(lon1, lat1, lon2, lat2) {
-		var R = 6371000; // metres
-		var φ1 = lat1 * Math.PI / 180;
-		var φ2 = lat2 * Math.PI / 180;
-		var Δφ = (lat2 - lat1) * Math.PI / 180;
-		var Δλ = (lon2 - lon1) * Math.PI / 180;
-
-		var a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-						Math.cos(φ1) * Math.cos(φ2) *
-						Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-
-		var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-		var d = R * c;
-
-		return d;
-	}
-
-	_createScout(position) {
+	_createScout(location) {
 		request
 			.post(API + '/scouts')
-			.send(position)
+			.send(location)
+			.set('Accept', 'application/json')
+			.end((err, res) => {
+				if (res.ok) {
+					this.setState({
+						scoutID: res.text
+					});
+				} else {
+					this.setState({
+						scouting: false
+					});
+				}
+			});
+	}
+
+	_updateScout(location) {
+		request
+			.post(API + '/scouts/' + this.state.scoutID)
+			.send(location)
 			.set('Accept', 'application/json')
 			.end((err, res) => {
 				if (res.ok) {
@@ -182,6 +155,67 @@ class Scout extends React.Component {
 					this.setState({
 						scouting: false
 					});
+				}
+			});
+	}
+
+	_getScouts(location) {
+		request
+			.get(API + '/scouts/')
+			.send(location)
+			.set('Accept', 'application/json')
+			.end((err, res) => {
+				if (res.ok) {
+					this._buildCurrentScouts(res.body);
+				} else {
+					this.setState({
+						scouting: false
+					});
+				}
+			});
+	}
+
+	_buildCurrentScouts(scouts) {
+		var oldScouts = _(this.state.scouts)
+			.clone()
+			.pluck('id')
+			.value();
+
+		var newScouts = _.filter(scouts, (scout) => {
+			return _.indexOf(oldScouts, scout.id) === -1 && scout.id !== this.state.scoutID;
+		});
+
+		if (newScouts.length > 0) {
+			VibrationIOS.vibrate();
+		}
+
+		var currentScouts = oldScouts.concat(newScouts);
+
+		this.setState({
+			scouts: currentScouts
+		});
+	}
+
+	_stopScout() {
+		navigator.geolocation.clearWatch(this.state.watchID);
+		clearInterval(this.state.timerID);
+		VibrationIOS.vibrate();
+
+		request
+			.del(API + '/scouts/' + this.state.scoutID)
+			.set('Accept', 'application/json')
+			.end((err, res) => {
+				if (res.ok) {
+					this.setState({
+						location: null,
+						error: null,
+						end: null,
+						timer: null,
+						scouts: [],
+						scouting: false
+					});
+				} else {
+
 				}
 			});
 	}

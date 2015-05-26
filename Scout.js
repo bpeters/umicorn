@@ -14,6 +14,8 @@ var {
 	View,
 } = React;
 
+var MissedConnection = require('./MissedConnection');
+
 var API = 'https://umicorn-api.herokuapp.com/api/v1';
 
 class Scout extends React.Component {
@@ -28,7 +30,7 @@ class Scout extends React.Component {
 			timerID: null,
 			end: null,
 			timer: null,
-			scoutID: null,
+			scout: null,
 			scouts: [],
 		};
 	}
@@ -51,12 +53,14 @@ class Scout extends React.Component {
 	}
 
 	_renderGeo() {
+		var scout = !_.isEmpty(this.state.scout) ? this.state.scout.objectId : null;
+		var scouts = _.pluck(this.state.scouts, 'objectId');
 		return (
 			<View>
 				<Text style={styles.info}>{this.state.timer}</Text>
-				<Text style={styles.tinyInfo}>{this.state.scoutID}</Text>
-				<Text style={styles.info}>{this.state.scouts.length}</Text>
-				<Text style={styles.tinyInfo}>{JSON.stringify(this.state.scouts)}</Text>
+				<Text style={styles.tinyInfo}>{scout}</Text>
+				<Text style={styles.info}>{scouts.length}</Text>
+				<Text style={styles.tinyInfo}>{JSON.stringify(scouts)}</Text>
 			</View>
 		);
 	}
@@ -64,6 +68,19 @@ class Scout extends React.Component {
 	_onPressButton() {
 		var timer = this._timer.bind(this);
 		if (!this.state.scouting) {
+			navigator.geolocation.getCurrentPosition(
+				(position) => {this._createScout(position)},
+				(error) => {
+					this.setState({
+						error
+					});
+				},
+				{
+					enableHighAccuracy: true, 
+					maximumAge: 30000, 
+					timeout: 27000
+				}
+			);
 			var timerID = setInterval(timer, 60000); // Every Minute
 			var watchID = navigator.geolocation.watchPosition(
 				(position) => {this._watcher(position)},
@@ -111,19 +128,23 @@ class Scout extends React.Component {
 			longitude: position.coords.longitude
 		};
 
-		if (!this.state.scoutID) {
-			this._createScout(location);
-		} else {
+		if (this.state.scout) {
 			this._updateScout(location);
+			this._getScouts(location);
 		}
-		this._getScouts(location);
 
 		this.setState({
 			location: location
 		});
 	}
 
-	_createScout(location) {
+	_createScout(position) {
+
+		var location = {
+			latitude: position.coords.latitude,
+			longitude: position.coords.longitude
+		};
+
 		request
 			.post(API + '/scouts')
 			.send(location)
@@ -131,7 +152,7 @@ class Scout extends React.Component {
 			.end((err, res) => {
 				if (res.ok) {
 					this.setState({
-						scoutID: res.text
+						scout: JSON.parse(res.text)
 					});
 				} else {
 					this.setState({
@@ -143,13 +164,13 @@ class Scout extends React.Component {
 
 	_updateScout(location) {
 		request
-			.post(API + '/scouts/' + this.state.scoutID)
+			.post(API + '/scouts/' + this.state.scout.objectId)
 			.send(location)
 			.set('Accept', 'application/json')
 			.end((err, res) => {
 				if (res.ok) {
 					this.setState({
-						scout: res.text
+						scout: JSON.parse(res.text)
 					});
 				} else {
 					this.setState({
@@ -161,12 +182,12 @@ class Scout extends React.Component {
 
 	_getScouts(location) {
 		request
-			.get(API + '/scouts/')
-			.send(location)
+			.get(API + '/scouts')
+			.query(location)
 			.set('Accept', 'application/json')
 			.end((err, res) => {
 				if (res.ok) {
-					this._buildCurrentScouts(res.body);
+					this._buildCurrentScouts(JSON.parse(res.text));
 				} else {
 					this.setState({
 						scouting: false
@@ -176,13 +197,11 @@ class Scout extends React.Component {
 	}
 
 	_buildCurrentScouts(scouts) {
-		var oldScouts = _(this.state.scouts)
-			.clone()
-			.pluck('id')
-			.value();
+
+		var oldScouts = _.clone(this.state.scouts);
 
 		var newScouts = _.filter(scouts, (scout) => {
-			return _.indexOf(oldScouts, scout.id) === -1 && scout.id !== this.state.scoutID;
+			return _.indexOf(_.pluck(oldScouts, 'objectId'), scout.objectId) === -1 && scout.objectId !== this.state.scout.objectId;
 		});
 
 		if (newScouts.length > 0) {
@@ -202,20 +221,17 @@ class Scout extends React.Component {
 		VibrationIOS.vibrate();
 
 		request
-			.del(API + '/scouts/' + this.state.scoutID)
+			.del(API + '/scouts/' + this.state.scout.objectId)
 			.set('Accept', 'application/json')
 			.end((err, res) => {
 				if (res.ok) {
-					this.setState({
-						location: null,
-						error: null,
-						end: null,
-						timer: null,
-						scouts: [],
-						scouting: false
+					this.props.navigator.replace({
+						component: MissedConnection,
+						passProps:{
+							scout: this.state.scout,
+							scouts: this.state.scouts
+						}
 					});
-				} else {
-
 				}
 			});
 	}
@@ -237,7 +253,7 @@ var styles = StyleSheet.create({
 		lineHeight: 50,
 	},
 	tinyInfo: {
-		marginTop: 50,
+		marginTop: 30,
 		color: '#E4D6EE',
 		fontSize: 11,
 		textAlign: 'center',

@@ -15,7 +15,7 @@ var umicorn = React.createClass({
 			<NavigatorIOS
 				style={styles.container}
 				initialRoute={{
-						title: 'Scout',
+						title: 'Scouting',
 						component: Scout,
 						passProps: {},
 					}

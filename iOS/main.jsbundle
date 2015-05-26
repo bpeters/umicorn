@@ -1134,7 +1134,7 @@ var umicorn = React.createClass({displayName: "umicorn",
 			React.createElement(NavigatorIOS, {
 				style: styles.container, 
 				initialRoute: {
-						title: 'Scout',
+						title: 'Scouting',
 						component: Scout,
 						passProps: {},
 					}, 
@@ -39435,7 +39435,7 @@ for (eventType in topLevelTypes) {
 
 module.exports = ReactTestUtils;
 });
-__d('umicorn/Scout',["react-native/Libraries/react-native/react-native","lodash/index","moment/moment","superagent/lib/client"],function(global, require, requireDynamic, requireLazy, module, exports) {  'use strict';
+__d('umicorn/Scout',["react-native/Libraries/react-native/react-native","lodash/index","moment/moment","superagent/lib/client","umicorn/MissedConnection"],function(global, require, requireDynamic, requireLazy, module, exports) {  'use strict';
 
 var React = require('react-native/Libraries/react-native/react-native');
 var _ = require('lodash/index');
@@ -39451,13 +39451,7 @@ var $__0=
 	
   React,AppRegistry=$__0.AppRegistry,StyleSheet=$__0.StyleSheet,Text=$__0.Text,TouchableHighlight=$__0.TouchableHighlight,VibrationIOS=$__0.VibrationIOS,View=$__0.View;
 
-var UMICORNS = [
-	{
-		id: 1,
-		longitude: -97.72966571919972,
-		latitude: 30.26964765339016,
-	},
-];
+var MissedConnection = require('umicorn/MissedConnection');
 
 var API = 'https://umicorn-api.herokuapp.com/api/v1';
 
@@ -39467,14 +39461,14 @@ var ____Class0=React.Component;for(var ____Class0____Key in ____Class0){if(____C
 		____Class0.call(this,props);
 		this.state = {
 			scouting: false,
-			position: null,
+			location: null,
 			error: null,
 			watchID: null,
 			timerID: null,
-			umicorns: [],
 			end: null,
 			timer: null,
 			scout: null,
+			scouts: [],
 		};
 	}
 
@@ -39496,12 +39490,14 @@ var ____Class0=React.Component;for(var ____Class0____Key in ____Class0){if(____C
 	};
 
 	Scout.prototype.$Scout_renderGeo=function() {
+		var scout = !_.isEmpty(this.state.scout) ? this.state.scout.objectId : null;
+		var scouts = _.pluck(this.state.scouts, 'objectId');
 		return (
 			React.createElement(View, null, 
 				React.createElement(Text, {style: styles.info}, this.state.timer), 
-				React.createElement(Text, {style: styles.tinyInfo}, this.state.scout), 
-				React.createElement(Text, {style: styles.info}, this.state.umicorns.length), 
-				React.createElement(Text, {style: styles.tinyInfo}, JSON.stringify(this.state.umicorns))
+				React.createElement(Text, {style: styles.tinyInfo}, scout), 
+				React.createElement(Text, {style: styles.info}, scouts.length), 
+				React.createElement(Text, {style: styles.tinyInfo}, JSON.stringify(scouts))
 			)
 		);
 	};
@@ -39509,6 +39505,19 @@ var ____Class0=React.Component;for(var ____Class0____Key in ____Class0){if(____C
 	Scout.prototype.$Scout_onPressButton=function() {
 		var timer = this.$Scout_timer.bind(this);
 		if (!this.state.scouting) {
+			navigator.geolocation.getCurrentPosition(
+				function(position)  {this.$Scout_createScout(position)}.bind(this),
+				function(error)  {
+					this.setState({
+						error:error
+					});
+				}.bind(this),
+				{
+					enableHighAccuracy: true, 
+					maximumAge: 30000, 
+					timeout: 27000
+				}
+			);
 			var timerID = setInterval(timer, 60000); // Every Minute
 			var watchID = navigator.geolocation.watchPosition(
 				function(position)  {this.$Scout_watcher(position)}.bind(this),
@@ -39531,27 +39540,18 @@ var ____Class0=React.Component;for(var ____Class0____Key in ____Class0){if(____C
 				scouting: true
 			});
 		} else {
-			navigator.geolocation.clearWatch(this.state.watchID);
-			clearInterval(this.state.timerID);
-			this.setState({
-				position: null,
-				error: null,
-				end: null,
-				timer: null,
-				umicorns: [],
-				scouting: false
-			});
+
+			this.$Scout_stopScout();
+
 		}
 	};
 
 	Scout.prototype.$Scout_timer=function() {
 		var timer = this.state.end.diff(moment(), 'minutes');
 		if (timer <= 0) {
-			this.setState({
-				scouting: false
-			});
-			VibrationIOS.vibrate();
+			this.$Scout_stopScout();
 		} else {
+			this.$Scout_getScouts(this.state.location);
 			this.setState({
 				timer: timer
 			});
@@ -39559,65 +39559,115 @@ var ____Class0=React.Component;for(var ____Class0____Key in ____Class0){if(____C
 	};
 
 	Scout.prototype.$Scout_watcher=function(position) {
-		var umicorns = _.clone(this.state.umicorns);
 
-		this.$Scout_createScout({
+		var location = {
 			latitude: position.coords.latitude,
 			longitude: position.coords.longitude
-		});
+		};
 
-		_.forEach(UMICORNS, function(umicorn)  {
-			var d = this.$Scout_distance(
-				position.coords.longitude,
-				position.coords.latitude,
-				umicorn.longitude,
-				umicorn.latitude
-			);
-			if (d <= 100 && _.indexOf(_.pluck(umicorns, 'id'), umicorn.id) === -1) {
-				umicorn.when = moment();
-				umicorn.distance = d;
-				umicorns.push(umicorn);
-				VibrationIOS.vibrate();
-			}
-		}.bind(this));
+		if (this.state.scout) {
+			this.$Scout_updateScout(location);
+			this.$Scout_getScouts(location);
+		}
 
 		this.setState({
-			position: position,
-			umicorns: umicorns
+			location: location
 		});
-	};
-
-	Scout.prototype.$Scout_distance=function(lon1, lat1, lon2, lat2) {
-		var R = 6371000; // metres
-		var φ1 = lat1 * Math.PI / 180;
-		var φ2 = lat2 * Math.PI / 180;
-		var Δφ = (lat2 - lat1) * Math.PI / 180;
-		var Δλ = (lon2 - lon1) * Math.PI / 180;
-
-		var a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-						Math.cos(φ1) * Math.cos(φ2) *
-						Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-
-		var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-		var d = R * c;
-
-		return d;
 	};
 
 	Scout.prototype.$Scout_createScout=function(position) {
+
+		var location = {
+			latitude: position.coords.latitude,
+			longitude: position.coords.longitude
+		};
+
 		request
 			.post(API + '/scouts')
-			.send(position)
+			.send(location)
 			.set('Accept', 'application/json')
 			.end(function(err, res)  {
 				if (res.ok) {
 					this.setState({
-						scout: res.body
+						scout: JSON.parse(res.text)
 					});
 				} else {
 					this.setState({
 						scouting: false
+					});
+				}
+			}.bind(this));
+	};
+
+	Scout.prototype.$Scout_updateScout=function(location) {
+		request
+			.post(API + '/scouts/' + this.state.scout.objectId)
+			.send(location)
+			.set('Accept', 'application/json')
+			.end(function(err, res)  {
+				if (res.ok) {
+					this.setState({
+						scout: JSON.parse(res.text)
+					});
+				} else {
+					this.setState({
+						scouting: false
+					});
+				}
+			}.bind(this));
+	};
+
+	Scout.prototype.$Scout_getScouts=function(location) {
+		request
+			.get(API + '/scouts')
+			.query(location)
+			.set('Accept', 'application/json')
+			.end(function(err, res)  {
+				if (res.ok) {
+					this.$Scout_buildCurrentScouts(JSON.parse(res.text));
+				} else {
+					this.setState({
+						scouting: false
+					});
+				}
+			}.bind(this));
+	};
+
+	Scout.prototype.$Scout_buildCurrentScouts=function(scouts) {
+
+		var oldScouts = _.clone(this.state.scouts);
+
+		var newScouts = _.filter(scouts, function(scout)  {
+			return _.indexOf(_.pluck(oldScouts, 'objectId'), scout.objectId) === -1 && scout.objectId !== this.state.scout.objectId;
+		}.bind(this));
+
+		if (newScouts.length > 0) {
+			VibrationIOS.vibrate();
+		}
+
+		var currentScouts = oldScouts.concat(newScouts);
+
+		this.setState({
+			scouts: currentScouts
+		});
+	};
+
+	Scout.prototype.$Scout_stopScout=function() {
+		navigator.geolocation.clearWatch(this.state.watchID);
+		clearInterval(this.state.timerID);
+		VibrationIOS.vibrate();
+
+		request
+			.del(API + '/scouts/' + this.state.scout.objectId)
+			.set('Accept', 'application/json')
+			.end(function(err, res)  {
+				if (res.ok) {
+					this.props.navigator.replace({
+						component: MissedConnection,
+						passProps:{
+							scout: this.state.scout,
+							scouts: this.state.scouts
+						}
 					});
 				}
 			}.bind(this));
@@ -39640,7 +39690,7 @@ var styles = StyleSheet.create({
 		lineHeight: 50,
 	},
 	tinyInfo: {
-		marginTop: 50,
+		marginTop: 30,
 		color: '#E4D6EE',
 		fontSize: 11,
 		textAlign: 'center',
@@ -56258,5 +56308,92 @@ module.exports = function(arr, fn, initial){
   
   return curr;
 };});
+__d('umicorn/MissedConnection',["react-native/Libraries/react-native/react-native","lodash/index","moment/moment","superagent/lib/client"],function(global, require, requireDynamic, requireLazy, module, exports) {  'use strict';
+
+var React = require('react-native/Libraries/react-native/react-native');
+var _ = require('lodash/index');
+var moment = require('moment/moment');
+var request = require('superagent/lib/client');
+
+var $__0=
+	
+	
+	
+	
+	
+	
+	
+  React,AppRegistry=$__0.AppRegistry,StyleSheet=$__0.StyleSheet,Text=$__0.Text,TextInput=$__0.TextInput,TouchableHighlight=$__0.TouchableHighlight,VibrationIOS=$__0.VibrationIOS,View=$__0.View;
+
+var API = 'https://umicorn-api.herokuapp.com/api/v1';
+
+var ____Class1=React.Component;for(var ____Class1____Key in ____Class1){if(____Class1.hasOwnProperty(____Class1____Key)){MissedConnection[____Class1____Key]=____Class1[____Class1____Key];}}var ____SuperProtoOf____Class1=____Class1===null?null:____Class1.prototype;MissedConnection.prototype=Object.create(____SuperProtoOf____Class1);MissedConnection.prototype.constructor=MissedConnection;MissedConnection.__superConstructor__=____Class1;
+
+	function MissedConnection(props) {
+		____Class1.call(this,props);
+		this.state = {
+			message: null
+		};
+	}
+
+	MissedConnection.prototype.render=function() {
+		return ( 
+			React.createElement(View, {style: styles.listContainer}, 
+				React.createElement(View, {style: styles.main}, 
+					React.createElement(TextInput, {
+						style: styles.textInput, 
+						onChangeText: function(text)  {return this.setState({message: text});}.bind(this), 
+						multiline: true, 
+						ref: "Message", 
+						autoCapitalize: "none", 
+						autoCorrect: false, 
+						keyboardType: "default", 
+						returnKeyType: "submit", 
+						clearButtonMode: "always", 
+						placeholder: "Write a missed connection...", 
+						value: this.state.message}
+					)
+				), 
+				React.createElement(TouchableHighlight, null, 
+					React.createElement(View, {style: styles.button}, 
+						React.createElement(Text, {style: styles.buttonText}
+							
+						)
+					)
+				)
+			)
+		);
+	};
+
+
+
+var styles = StyleSheet.create({
+	listContainer: {
+		flex: 1,
+		backgroundColor: '#3F3648',
+	},
+	main: {
+		paddingTop: 75,
+		height: 592,
+	},
+	textInput: {
+		height: 120,
+		borderColor: 'gray',
+		borderWidth: 1
+	},
+	button: {
+		height: 75,
+		backgroundColor: '#1BCAB3',
+	},
+	buttonText: {
+		color: '#3F3648',
+		fontSize: 20,
+		textAlign: 'center',
+		lineHeight: 50,
+	},
+});
+
+module.exports = MissedConnection;
+});
 ;require("umicorn/index.ios");
 //@ sourceMappingURL=/index.ios.map
